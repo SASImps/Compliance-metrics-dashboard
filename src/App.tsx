@@ -130,10 +130,15 @@ const Heatmap = ({ data }: { data: { impact: number, likelihood: number, count: 
 // --- Main App ---
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('auth_verified') === 'true');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
+  // Selected Finding for Modal
+  const [selectedFinding, setSelectedFinding] = useState<typeof findings[0] | null>(null);
+
   // Filters
   const [framework, setFramework] = useState<Framework | 'All'>('All');
   const [severityFilter, setSeverityFilter] = useState<SeveritySubset[]>(['Critical', 'High', 'Medium', 'Low']);
@@ -146,6 +151,7 @@ export default function App() {
     const correctPassword = (import.meta as any).env.VITE_APP_PASSWORD;
     if (password === correctPassword) {
       setIsAuthenticated(true);
+      localStorage.setItem('auth_verified', 'true');
       setError(false);
     } else {
       setError(true);
@@ -153,6 +159,18 @@ export default function App() {
       // Standard security practice: clear error and don't provide hints
       setTimeout(() => setError(false), 2000);
     }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('auth_verified');
+  };
+
+  const refreshAudit = () => {
+    setIsRefreshing(true);
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 1500);
   };
 
   // Data Processing
@@ -189,7 +207,8 @@ export default function App() {
     const headers = ['ID', 'Title', 'Status', 'Severity', 'Date', 'Framework'];
     const rows = filteredFindingsBySearch.map(f => [
       f.id,
-      f.title,
+      // Sanitizing for CSV Injection: Prepending a quote to suspicious starts
+      f.title.replace(/^([=+\-@])/, "'$1"),
       f.status,
       f.severity,
       f.date,
@@ -250,14 +269,19 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
         <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
           className="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700"
         >
           <div className="p-8 text-center">
-            <div className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+            <motion.div 
+              initial={{ rotate: -10 }}
+              animate={{ rotate: 0 }}
+              transition={{ type: 'spring', damping: 10 }}
+              className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-6"
+            >
               <Shield className="w-8 h-8 text-indigo-400" />
-            </div>
+            </motion.div>
             <h1 className="text-2xl font-bold text-white mb-2 underline decoration-indigo-500/50 decoration-4 underline-offset-4">Compliance Metrics Dashboard</h1>
             <p className="text-slate-400 text-sm mb-8">Access the restricted compliance dashboard</p>
             
@@ -285,9 +309,9 @@ export default function App() {
               <AnimatePresence>
                 {error && (
                   <motion.div 
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
                     className="bg-red-500/10 border border-red-500/50 rounded-lg p-3"
                   >
                     <p className="text-red-400 text-xs font-medium">Access Denied: Invalid credentials provided.</p>
@@ -305,9 +329,15 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen bg-slate-50 flex overflow-hidden font-sans">
+    <div className={cn(
+      "h-screen flex overflow-hidden font-sans transition-colors duration-300",
+      isDarkMode ? "bg-slate-950 text-slate-200" : "bg-slate-50 text-slate-900"
+    )}>
       {/* Sidebar Nav */}
-      <aside className="w-64 bg-slate-900 flex flex-col shrink-0 border-r border-slate-800">
+      <aside className={cn(
+        "w-64 flex flex-col shrink-0 border-r transition-colors duration-300",
+        isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-900 border-slate-800"
+      )}>
         <div className="p-6 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold ring-4 ring-indigo-500/10 transition-transform hover:scale-110">
@@ -331,8 +361,8 @@ export default function App() {
                   className={cn(
                     "w-full text-left px-3 py-2 rounded-md text-sm transition-all flex items-center gap-3",
                     framework === fw 
-                      ? "bg-indigo-600/10 text-indigo-400 font-medium" 
-                      : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                      ? (isDarkMode ? "bg-indigo-500/20 text-indigo-400 font-medium" : "bg-indigo-600/10 text-indigo-400 font-medium")
+                      : (isDarkMode ? "text-slate-500 hover:bg-slate-900 hover:text-slate-200" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200")
                   )}
                 >
                   <div className={cn(
@@ -363,14 +393,38 @@ export default function App() {
                         else setSeverityFilter(severityFilter.filter(item => item !== s));
                       }}
                     />
-                    <div className="w-4 h-4 border border-slate-600 rounded peer-checked:bg-indigo-500 peer-checked:border-indigo-500 transition-all flex items-center justify-center">
+                    <div className={cn(
+                      "w-4 h-4 border rounded peer-checked:bg-indigo-500 peer-checked:border-indigo-500 transition-all flex items-center justify-center",
+                      isDarkMode ? "border-slate-700 bg-slate-950" : "border-slate-600 bg-slate-900"
+                    )}>
                       <div className="w-1.5 h-1.5 bg-white rounded-full opacity-0 peer-checked:opacity-100" />
                     </div>
                   </div>
-                  <span className="text-xs font-medium text-slate-400 group-hover:text-slate-300 transition-colors uppercase tracking-wider">{s}</span>
+                  <span className={cn(
+                    "text-xs font-medium uppercase tracking-wider transition-colors",
+                    isDarkMode ? "text-slate-500 group-hover:text-slate-300" : "text-slate-400 group-hover:text-slate-300"
+                  )}>{s}</span>
                 </label>
               ))}
             </div>
+          </div>
+
+          {/* Actions */}
+          <div className="mt-auto pt-4 border-t border-slate-800">
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="w-full flex items-center gap-2 px-2 py-2 text-slate-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-widest"
+            >
+              <RefreshCw className={cn("w-3 h-3 transition-transform", isDarkMode ? "rotate-180" : "rotate-0")} />
+              {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2 px-2 py-2 text-red-400 hover:text-red-300 transition-colors text-xs font-bold uppercase tracking-widest"
+            >
+              <Lock className="w-3 h-3" />
+              Lock Session
+            </button>
           </div>
         </nav>
 
@@ -396,27 +450,53 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Bar / Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 shadow-sm z-10">
+        <header className={cn(
+          "h-16 border-b flex items-center justify-between px-8 shrink-0 shadow-sm z-10 transition-colors duration-300",
+          isDarkMode ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
+        )}>
           <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold text-slate-800 tracking-tight">Compliance Metrics Dashboard</h1>
+            <h1 className={cn(
+              "text-lg font-bold tracking-tight",
+              isDarkMode ? "text-white" : "text-slate-800"
+            )}>Compliance Metrics Dashboard</h1>
             <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded uppercase tracking-widest border border-green-200 ring-4 ring-green-500/5">Secure & Verified</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-right mr-4 border-r border-slate-100 pr-4 hidden md:block">
+            <div className={cn(
+              "text-right mr-4 border-r pr-4 hidden md:block",
+              isDarkMode ? "border-slate-800" : "border-slate-100"
+            )}>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Operator Role</p>
-              <p className="text-xs font-semibold text-slate-700">security_admin_v2</p>
+              <p className={cn(
+                "text-xs font-semibold",
+                isDarkMode ? "text-slate-300" : "text-slate-700"
+              )}>security_admin_v2</p>
             </div>
-            <button className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all active:scale-95 shadow-sm">
-              Refresh Audit
+            <button 
+              onClick={refreshAudit}
+              disabled={isRefreshing}
+              className={cn(
+                "px-4 py-2 border rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm disabled:opacity-50 flex items-center gap-2",
+                isDarkMode ? "border-slate-700 text-slate-400 hover:bg-slate-900" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              {isRefreshing && <RefreshCw className="w-3 h-3 animate-spin" />}
+              {isRefreshing ? 'Scanning...' : 'Refresh Audit'}
             </button>
-            <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-md hover:bg-indigo-700 transition-all active:scale-95 hover:shadow-indigo-500/20">
+            <button 
+              onClick={exportToCSV}
+              className="px-6 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-md hover:bg-indigo-700 transition-all active:scale-95 hover:shadow-indigo-500/20"
+            >
               Generate Report
             </button>
           </div>
         </header>
 
         {/* Global Workspace */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth bg-slate-50/50">
+        <div className={cn(
+          "flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth transition-colors duration-300",
+          isDarkMode ? "bg-slate-950/50" : "bg-slate-50/50"
+        )}>
           {/* Row 1: KPI Cards */}
           <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard 
@@ -447,109 +527,160 @@ export default function App() {
             />
           </section>
 
-          {/* Row 2: Analysis Charts */}
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <ChartContainer title="Open Risks by Severity">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={riskBySeverity}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                  <Tooltip 
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
-                    {riskBySeverity.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={
-                        entry.name === 'Critical' ? '#ef4444' : 
-                        entry.name === 'High' ? '#f97316' : 
-                        entry.name === 'Medium' ? '#f59e0b' : '#10b981'
-                      } />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartContainer>
+          <AnimatePresence mode="wait">
+            {isRefreshing ? (
+              <motion.div 
+                key="refreshing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="grid grid-cols-1 md:grid-cols-2 gap-8"
+              >
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className={cn(
+                    "h-80 w-full animate-pulse rounded-xl border",
+                    isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                  )} />
+                ))}
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="charts"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-8"
+              >
+                {/* Analysis Charts */}
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <ChartContainer title="Open Risks by Severity">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={riskBySeverity}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                        <Tooltip 
+                          cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                            borderRadius: '12px', 
+                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
+                            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                            color: isDarkMode ? '#fff' : '#000'
+                          }}
+                        />
+                        <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                          {riskBySeverity.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={
+                              entry.name === 'Critical' ? '#ef4444' : 
+                              entry.name === 'High' ? '#f97316' : 
+                              entry.name === 'Medium' ? '#f59e0b' : '#10b981'
+                            } />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
 
-            <ChartContainer title="Audit Findings Trend (12m Cycle)">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={findingsTrend}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="count" 
-                    stroke="#6366f1" 
-                    strokeWidth={4} 
-                    dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#fff' }} 
-                    activeDot={{ r: 6, stroke: '#fff', strokeWidth: 3 }} 
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </ChartContainer>
-          </section>
+                  <ChartContainer title="Audit Findings Trend (12m Cycle)">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={findingsTrend}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                            borderRadius: '12px', 
+                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
+                            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                            color: isDarkMode ? '#fff' : '#000'
+                          }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="count" 
+                          stroke="#6366f1" 
+                          strokeWidth={4} 
+                          dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#fff' }} 
+                          activeDot={{ r: 6, stroke: '#fff', strokeWidth: 3 }} 
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
+                </section>
 
-          {/* Row 3: Supply Chain & Risk Heatmap */}
-          <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <ChartContainer title="Vendor Risk Tier Distribution">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={vendorRiskDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={70}
-                    outerRadius={95}
-                    paddingAngle={8}
-                    dataKey="value"
-                  >
-                    {vendorRiskDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={
-                        entry.name === 'Critical' ? '#ef4444' : 
-                        entry.name === 'High' ? '#f97316' : 
-                        entry.name === 'Medium' ? '#f59e0b' : '#10b981'
-                      } />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                  />
-                  <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartContainer>
+                {/* Supply Chain & Risk Heatmap */}
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <ChartContainer title="Vendor Risk Tier Distribution">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={vendorRiskDistribution}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={70}
+                          outerRadius={95}
+                          paddingAngle={8}
+                          dataKey="value"
+                        >
+                          {vendorRiskDistribution.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={
+                              entry.name === 'Critical' ? '#ef4444' : 
+                              entry.name === 'High' ? '#f97316' : 
+                              entry.name === 'Medium' ? '#f59e0b' : '#10b981'
+                            } />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                            borderRadius: '12px', 
+                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                            color: isDarkMode ? '#fff' : '#000'
+                          }}
+                        />
+                        <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </ChartContainer>
 
-            <ChartContainer title="Risk Impact vs Likelihood Matrix">
-              <div className="flex flex-col h-full">
-                <div className="flex-1 min-h-0 bg-slate-50/50 rounded-xl border border-slate-100 p-2">
-                  <Heatmap data={heatmapData} />
-                </div>
-                <div className="flex items-center justify-between mt-4">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Likelihood Axis →</span>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded bg-red-500/10" />
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Heat Intensity (Risk Count)</span>
-                  </div>
-                </div>
-              </div>
-            </ChartContainer>
-          </section>
+                  <ChartContainer title="Risk Impact vs Likelihood Matrix">
+                    <div className="flex flex-col h-full">
+                      <div className={cn(
+                        "flex-1 min-h-0 rounded-xl border p-2 overflow-hidden",
+                        isDarkMode ? "bg-slate-900 border-slate-800" : "bg-slate-50/50 border-slate-100"
+                      )}>
+                        <Heatmap data={heatmapData} />
+                      </div>
+                      <div className="flex items-center justify-between mt-4">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Likelihood Axis →</span>
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 rounded bg-red-500/10" />
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Heat Intensity (Risk Count)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </ChartContainer>
+                </section>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* Row 4: Controls Mastery */}
+          {/* Controls Mastery */}
           <ChartContainer title="Control Performance by Enterprise Framework" className="h-[420px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={controlRateByFramework}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
                 <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                  cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
+                  contentStyle={{ 
+                    backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                    borderRadius: '12px', 
+                    border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                    color: isDarkMode ? '#fff' : '#000'
+                  }}
                 />
                 <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', paddingBottom: '20px' }} />
                 <Bar dataKey="pass" name="Pass" fill="#10b981" radius={[6, 6, 0, 0]} barSize={24} />
@@ -560,10 +691,19 @@ export default function App() {
           </ChartContainer>
 
           {/* Row 5: Data Registry */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-            <div className="p-6 border-b border-slate-100 bg-slate-50/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className={cn(
+            "rounded-2xl border shadow-sm overflow-hidden mb-8 transition-colors duration-300",
+            isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+          )}>
+            <div className={cn(
+              "p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4",
+              isDarkMode ? "border-slate-800 bg-slate-950/30" : "border-slate-100 bg-slate-50/30"
+            )}>
               <div>
-                <h3 className="text-lg font-bold text-slate-800 tracking-tight">Active Findings Registry</h3>
+                <h3 className={cn(
+                  "text-lg font-bold tracking-tight",
+                  isDarkMode ? "text-white" : "text-slate-800"
+                )}>Active Findings Registry</h3>
                 <p className="text-[11px] font-medium text-slate-500 uppercase tracking-widest mt-1">Audit Trail & Mitigation Log</p>
               </div>
               <div className="flex items-center gap-3">
@@ -574,17 +714,25 @@ export default function App() {
                     placeholder="Search findings (Ref ID)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all w-64 shadow-sm"
+                    className={cn(
+                      "border rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all w-64 shadow-sm",
+                      isDarkMode ? "bg-slate-900 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-900"
+                    )}
                   />
                 </div>
-                <div className="flex bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
+                <div className={cn(
+                  "flex rounded-xl border p-1 shadow-sm",
+                  isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                )}>
                   {['All', 'Open', 'Closed'].map(status => (
                     <button
                       key={status}
                       onClick={() => setFindingsFilter(status as any)}
                       className={cn(
                         "px-3 py-1 rounded-lg text-xs font-bold transition-all",
-                        findingsFilter === status ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20" : "text-slate-500 hover:text-slate-700"
+                        findingsFilter === status 
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20" 
+                          : "text-slate-500 hover:text-slate-700"
                       )}
                     >
                       {status}
@@ -596,7 +744,10 @@ export default function App() {
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                  <tr className={cn(
+                    "border-b transition-colors",
+                    isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-50/50 border-slate-100"
+                  )}>
                     <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reference ID</th>
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Requirement Violation</th>
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Operational State</th>
@@ -604,38 +755,63 @@ export default function App() {
                     <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Audit Framework</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filteredFindingsBySearch.slice(0, 8).map((f) => (
-                    <tr key={f.id} className="hover:bg-indigo-50/20 transition-colors group cursor-default">
-                      <td className="px-8 py-4 font-mono text-[11px] text-indigo-600 font-bold bg-slate-50/30 group-hover:bg-indigo-50/50">{f.id}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-700">{f.title}</td>
-                      <td className="px-6 py-4">
-                        <span className={cn(
-                          "inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border",
-                          f.status === 'Open' ? "bg-amber-50 text-amber-600 border-amber-200" :
-                          f.status === 'Overdue' ? "bg-red-50 text-red-600 border-red-200" :
-                          "bg-emerald-50 text-emerald-600 border-emerald-200"
-                        )}>
-                          {f.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={cn(
-                          "inline-block w-2.5 h-2.5 rounded-full ring-4 ring-offset-2 ring-slate-50",
-                          f.severity === 'Critical' ? "bg-red-500 animate-pulse" :
-                          f.severity === 'High' ? "bg-orange-500" :
-                          f.severity === 'Medium' ? "bg-amber-500" : "bg-emerald-500"
-                        )} />
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] font-black text-slate-400 group-hover:text-indigo-500 transition-colors px-2 py-1 bg-slate-100 rounded group-hover:bg-indigo-50">{f.framework}</span>
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-800">
+                  <AnimatePresence mode="popLayout">
+                    {filteredFindingsBySearch.slice(0, 8).map((f) => (
+                      <motion.tr 
+                        key={f.id} 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setSelectedFinding(f)}
+                        className={cn(
+                          "transition-colors group cursor-pointer",
+                          isDarkMode ? "hover:bg-indigo-500/10" : "hover:bg-indigo-50/20"
+                        )}
+                      >
+                        <td className={cn(
+                          "px-8 py-4 font-mono text-[11px] font-bold transition-colors",
+                          isDarkMode ? "text-indigo-400 bg-slate-900/50 group-hover:bg-indigo-500/20" : "text-indigo-600 bg-slate-50/30 group-hover:bg-indigo-50/50"
+                        )}>{f.id}</td>
+                        <td className={cn(
+                          "px-6 py-4 text-sm font-semibold",
+                          isDarkMode ? "text-slate-300" : "text-slate-700"
+                        )}>{f.title}</td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border",
+                            f.status === 'Open' ? "bg-amber-50 text-amber-600 border-amber-200" :
+                            f.status === 'Overdue' ? "bg-red-50 text-red-600 border-red-200" :
+                            "bg-emerald-50 text-emerald-600 border-emerald-200"
+                          )}>
+                            {f.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={cn(
+                            "inline-block w-2.5 h-2.5 rounded-full ring-4 ring-offset-2 transition-transform group-hover:scale-125",
+                            isDarkMode ? "ring-slate-950" : "ring-slate-50",
+                            f.severity === 'Critical' ? "bg-red-500 animate-pulse" :
+                            f.severity === 'High' ? "bg-orange-500" :
+                            f.severity === 'Medium' ? "bg-amber-500" : "bg-emerald-500"
+                          )} />
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "text-[10px] font-black transition-colors px-2 py-1 rounded",
+                            isDarkMode ? "text-slate-500 group-hover:text-indigo-400 bg-slate-800 group-hover:bg-indigo-500/20" : "text-slate-400 group-hover:text-indigo-500 bg-slate-100 group-hover:bg-indigo-50"
+                          )}>{f.framework}</span>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </AnimatePresence>
                 </tbody>
               </table>
             </div>
-            <div className="p-4 bg-white border-t border-slate-100 flex items-center justify-between">
+            <div className={cn(
+              "p-4 border-t flex items-center justify-between",
+              isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"
+            )}>
               <div className="flex items-center gap-4">
                 <p className="text-[11px] text-slate-500 font-medium italic">Synchronized with remote GRC vault. 128-bit encryption active.</p>
               </div>
@@ -650,7 +826,10 @@ export default function App() {
         </div>
 
         {/* Status Bar / Footer */}
-        <footer className="h-10 bg-white border-t border-slate-200 flex items-center px-8 justify-between text-[10px] font-bold text-slate-500 shrink-0 uppercase tracking-widest z-10">
+        <footer className={cn(
+          "h-10 border-t flex items-center px-8 justify-between text-[10px] font-bold shrink-0 uppercase tracking-widest z-10 transition-colors duration-300",
+          isDarkMode ? "bg-slate-950 border-slate-800 text-slate-500" : "bg-white border-slate-200 text-slate-500"
+        )}>
           <div className="flex gap-6 items-center">
             <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span> GRC Engine: Operational</span>
             <div className="w-px h-3 bg-slate-200" />
@@ -659,10 +838,111 @@ export default function App() {
           <div className="flex items-center gap-6">
              <span className="text-indigo-500">Security Verified</span>
              <div className="w-px h-3 bg-slate-200" />
-             <div className="font-mono text-slate-400">v2.0.4-LTS-STABLE</div>
+             <div className="font-mono text-slate-400">v2.0.5-LTS-STABLE</div>
           </div>
         </footer>
       </main>
+
+      {/* Finding Detail Modal */}
+      <AnimatePresence>
+        {selectedFinding && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedFinding(null)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className={cn(
+                "relative max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden border",
+                isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+              )}
+            >
+              <div className="p-8">
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <div className="flex items-center gap-3 mb-2">
+                       <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] font-mono font-bold rounded border border-indigo-500/20">{selectedFinding.id}</span>
+                       <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest",
+                          selectedFinding.severity === 'Critical' ? "bg-red-500/10 text-red-500" :
+                          selectedFinding.severity === 'High' ? "bg-orange-500/10 text-orange-500" : "bg-amber-500/10 text-amber-500"
+                       )}>{selectedFinding.severity} IMPACT</span>
+                    </div>
+                    <h2 className={cn(
+                      "text-2xl font-bold tracking-tight",
+                      isDarkMode ? "text-white" : "text-slate-900"
+                    )}>{selectedFinding.title}</h2>
+                  </div>
+                  <button 
+                    onClick={() => setSelectedFinding(null)}
+                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <Users className="w-6 h-6 rotate-45" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 mb-8">
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</h4>
+                      <p className={cn(
+                        "text-sm font-bold",
+                        selectedFinding.status === 'Closed' ? "text-emerald-500" : "text-amber-500"
+                      )}>{selectedFinding.status}</p>
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Framework</h4>
+                      <p className="text-sm font-bold text-slate-400">{selectedFinding.framework}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Audit Date</h4>
+                      <p className="text-sm font-bold text-slate-400">{selectedFinding.date}</p>
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ownership</h4>
+                      <p className="text-sm font-bold text-slate-400">soc_compliance_team</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "p-4 rounded-xl border mb-8",
+                  isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-100"
+                )}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Info className="w-4 h-4 text-indigo-400" />
+                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Remediation Guidance</h4>
+                  </div>
+                  <p className="text-sm text-slate-500 leading-relaxed">
+                    This finding indicates a deviation from standard control implementation as defined in {selectedFinding.framework}. 
+                    Recommend immediate review of access logs and validation of multi-factor authentication parity across all production endpoints.
+                  </p>
+                </div>
+
+                <div className="flex gap-4">
+                  <button className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-colors">
+                    Mark as Resolved
+                  </button>
+                  <button className={cn(
+                    "flex-1 border font-bold py-3 rounded-xl transition-all",
+                    isDarkMode ? "border-slate-800 text-slate-400 hover:bg-slate-800" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  )}>
+                    Assign Task
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
