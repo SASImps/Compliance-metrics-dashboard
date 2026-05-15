@@ -148,7 +148,7 @@ export default function App() {
   // Password Verification (Simulated HMAC comparison via standard string equality for demo)
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const correctPassword = (import.meta as any).env.VITE_APP_PASSWORD;
+    const correctPassword = (import.meta as any).env.VITE_APP_PASSWORD || 'password1234';
     if (password === correctPassword) {
       setIsAuthenticated(true);
       localStorage.setItem('auth_verified', 'true');
