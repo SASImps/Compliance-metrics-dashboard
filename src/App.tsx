@@ -17,7 +17,10 @@ import {
   RefreshCw,
   Lock,
   ChevronRight,
-  Info
+  Info,
+  Activity,
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -88,16 +91,26 @@ const ChartContainer = ({ title, children, className }: { title: string; childre
 );
 
 // --- Sub-components (Heatmap) ---
-const Heatmap = ({ data }: { data: { impact: number, likelihood: number, count: number }[] }) => {
+const Heatmap = ({ data, onCellClick, selectedCell }: { 
+  data: { impact: number, likelihood: number, count: number }[],
+  onCellClick?: (impact: number, likelihood: number) => void,
+  selectedCell?: { impact: number, likelihood: number } | null
+}) => {
   const cells = [];
   for (let i = 5; i >= 1; i--) {
     for (let j = 1; j <= 5; j++) {
       const match = data.find(d => d.impact === i && d.likelihood === j);
       const intensity = match ? Math.min(match.count * 10, 100) : 0;
+      const isSelected = selectedCell?.impact === i && selectedCell?.likelihood === j;
+      
       cells.push(
         <div 
           key={`${i}-${j}`} 
-          className="aspect-square flex items-center justify-center text-[10px] font-bold transition-all hover:scale-105"
+          onClick={() => onCellClick?.(i, j)}
+          className={cn(
+            "aspect-square flex items-center justify-center text-[10px] font-bold transition-all hover:scale-105 cursor-pointer relative",
+            isSelected && "ring-2 ring-indigo-500 ring-inset z-10"
+          )}
           style={{ 
             backgroundColor: intensity > 0 ? `rgba(239, 68, 68, ${0.1 + (intensity / 100)})` : '#f8fafc',
             border: '1px solid #e2e8f0'
@@ -105,6 +118,7 @@ const Heatmap = ({ data }: { data: { impact: number, likelihood: number, count: 
           title={`Impact: ${i}, Likelihood: ${j}, Count: ${match?.count || 0}`}
         >
           {match?.count || ''}
+          {isSelected && <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-indigo-500 rounded-bl-sm" />}
         </div>
       );
     }
@@ -127,6 +141,30 @@ const Heatmap = ({ data }: { data: { impact: number, likelihood: number, count: 
   );
 };
 
+const ActivityTimeline = ({ activities }: { activities: any[] }) => (
+  <div className="space-y-4">
+    {activities.map((activity, idx) => (
+      <div key={idx} className="flex gap-4 relative">
+        {idx !== activities.length - 1 && (
+          <div className="absolute left-2 top-8 bottom-0 w-px bg-slate-200" />
+        )}
+        <div className={cn(
+          "w-4 h-4 rounded-full mt-1 shrink-0 flex items-center justify-center text-[8px] text-white",
+          activity.type === 'alert' ? "bg-red-500" :
+          activity.type === 'success' ? "bg-emerald-500" : "bg-indigo-500"
+        )}>
+          {activity.type === 'alert' ? '!' : activity.type === 'success' ? '✓' : '•'}
+        </div>
+        <div className="flex-1 pb-4">
+          <p className="text-xs font-semibold text-slate-700">{activity.title}</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">{activity.description}</p>
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1 block">{activity.timestamp}</span>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
 // --- Main App ---
 
 export default function App() {
@@ -138,6 +176,20 @@ export default function App() {
   
   // Selected Finding for Modal
   const [selectedFinding, setSelectedFinding] = useState<typeof findings[0] | null>(null);
+  
+  // AI Mitigation State
+  const [aiGuidance, setAiGuidance] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Selected Heatmap Cell
+  const [selectedHeatmapCell, setSelectedHeatmapCell] = useState<{ impact: number, likelihood: number } | null>(null);
+
+  // Activity Feed State
+  const [activities, setActivities] = useState([
+    { title: "Dashboard Session Started", description: "Secure session established via operator gate.", type: "success", timestamp: "Just now" },
+    { title: "NIST-2.0 Audit Scheduled", description: "Automated scan queued for Q2 verification.", type: "info", timestamp: "5m ago" },
+    { title: "High Risk Mitigation Delayed", description: "Finding ID-7023 SLA has exceeded 48 hours.", type: "alert", timestamp: "22m ago" }
+  ]);
 
   // Filters
   const [framework, setFramework] = useState<Framework | 'All'>('All');
@@ -148,8 +200,13 @@ export default function App() {
   // Password Verification (Simulated HMAC comparison via standard string equality for demo)
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const correctPassword = (import.meta as any).env.VITE_APP_PASSWORD || 'password1234';
-    if (password === correctPassword) {
+    const envPassword = (import.meta as any).env.VITE_APP_PASSWORD;
+    // Fallback to "password1234" if env var is missing, empty, or the string "undefined"
+    const correctPassword = (envPassword && envPassword !== "undefined" && envPassword !== "") 
+      ? envPassword 
+      : 'password1234';
+
+    if (password.trim() === correctPassword) {
       setIsAuthenticated(true);
       localStorage.setItem('auth_verified', 'true');
       setError(false);
@@ -168,9 +225,36 @@ export default function App() {
 
   const refreshAudit = () => {
     setIsRefreshing(true);
+    setActivities(prev => [
+      { title: "Audit Audit Initiated", description: "Scanning 260+ compliance entities across cloud clusters.", type: "info", timestamp: "Just now" },
+      ...prev.slice(0, 4)
+    ]);
     setTimeout(() => {
       setIsRefreshing(false);
     }, 1500);
+  };
+
+  const analyzeWithAI = async (finding: typeof findings[0]) => {
+    setIsAiLoading(true);
+    setAiGuidance(null);
+    try {
+      const resp = await fetch("/api/mitigation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ finding })
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      setAiGuidance(data.remediation);
+      setActivities(prev => [
+        { title: "AI Intelligence Used", description: `Remediation guidance generated for ${finding.id}.`, type: "success", timestamp: "Just now" },
+        ...prev.slice(0, 5)
+      ]);
+    } catch (err: any) {
+      setAiGuidance(`Error: ${err.message || 'The Gemini API key is missing or invalid.'}`);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   // Data Processing
@@ -254,6 +338,14 @@ export default function App() {
       return { impact, likelihood, count };
     });
   }, [filteredRisks]);
+
+  const risksInSelectedCell = useMemo(() => {
+    if (!selectedHeatmapCell) return [];
+    return filteredRisks.filter(r => 
+      r.impact === selectedHeatmapCell.impact && 
+      r.likelihood === selectedHeatmapCell.likelihood
+    );
+  }, [filteredRisks, selectedHeatmapCell]);
 
   const controlRateByFramework = useMemo(() => {
     return ['NIST CSF 2.0', 'SOC 2', 'ISO 27001'].map(fw => {
@@ -432,17 +524,23 @@ export default function App() {
         <div className="p-4 mt-auto">
           <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-lg">
             <div className="flex items-center gap-2 text-slate-400 mb-2">
-              <RefreshCw className="w-3 h-3 animate-spin-slow" />
+              <RefreshCw className={cn("w-3 h-3", isRefreshing ? "animate-spin" : "animate-spin-slow")} />
               <div className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Compliance Health</div>
             </div>
             <div className="flex justify-between items-end mb-2">
-              <span className="text-white font-bold text-sm">Synthetic Mode</span>
+              <span className="text-white font-bold text-sm">{isRefreshing ? 'Scanning...' : 'Synthetic Mode'}</span>
               <span className="text-indigo-400 text-[10px] font-mono">{lastRefreshed}</span>
             </div>
             <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
-              <div className="bg-indigo-500 h-full w-[78%] transition-all duration-1000 shadow-[0_0_8px_rgba(99,102,241,0.5)]"></div>
+              <motion.div 
+                initial={{ width: "78%" }}
+                animate={{ width: isRefreshing ? "100%" : "78%" }}
+                className="bg-indigo-500 h-full transition-all shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+              ></motion.div>
             </div>
-            <p className="mt-2 text-[9px] text-slate-500 leading-relaxed italic">Engine online: Scanning 260+ compliance entities.</p>
+            <p className="mt-2 text-[9px] text-slate-500 leading-relaxed italic">
+              {isRefreshing ? 'Engine busy: Verifying SOC2 parity...' : 'Engine online: Scanning 260+ compliance entities.'}
+            </p>
           </div>
         </div>
       </aside>
@@ -650,7 +748,11 @@ export default function App() {
                         "flex-1 min-h-0 rounded-xl border p-2 overflow-hidden",
                         isDarkMode ? "bg-slate-900 border-slate-800" : "bg-slate-50/50 border-slate-100"
                       )}>
-                        <Heatmap data={heatmapData} />
+                        <Heatmap 
+                          data={heatmapData} 
+                          onCellClick={(impact, likelihood) => setSelectedHeatmapCell({ impact, likelihood })}
+                          selectedCell={selectedHeatmapCell}
+                        />
                       </div>
                       <div className="flex items-center justify-between mt-4">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Likelihood Axis →</span>
@@ -661,6 +763,71 @@ export default function App() {
                       </div>
                     </div>
                   </ChartContainer>
+                </section>
+
+                {/* Risk Drill-down & Activity Feed */}
+                <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className={cn(
+                    "lg:col-span-2 p-6 rounded-xl border shadow-sm h-[400px] flex flex-col",
+                    isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                  )}>
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-amber-500" />
+                        Risk Drill-down
+                      </h3>
+                      {selectedHeatmapCell ? (
+                        <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded tracking-widest">
+                          IMPACT {selectedHeatmapCell.impact} / LIKELIHOOD {selectedHeatmapCell.likelihood}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest underline decoration-dotted">Select a cell above</span>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto space-y-3">
+                      {risksInSelectedCell.length > 0 ? (
+                        risksInSelectedCell.map(risk => (
+                          <div key={risk.id} className={cn(
+                            "p-3 rounded-lg border transition-all hover:border-indigo-300",
+                            isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-100"
+                          )}>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono font-bold text-indigo-400">{risk.id}</span>
+                              <span className={cn(
+                                "text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-tighter text-white",
+                                risk.severity === 'Critical' ? "bg-red-500" : risk.severity === 'High' ? "bg-orange-500" : "bg-amber-500"
+                              )}>{risk.severity}</span>
+                            </div>
+                            <p className="text-xs font-semibold mt-1 text-slate-700">{risk.title}</p>
+                            <div className="mt-2 flex gap-2">
+                              {risk.frameworks.map(fw => (
+                                <span key={fw} className="text-[9px] text-slate-400 font-bold tracking-tight px-1.5 border border-slate-200 rounded">{fw}</span>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-8 grayscale opacity-50">
+                          <Search className="w-12 h-12 text-slate-200 mb-2" />
+                          <p className="text-sm font-medium text-slate-400">Click any heat signature on the impact matrix to reveal filtered risk telemetry.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={cn(
+                    "p-6 rounded-xl border shadow-sm h-[400px] flex flex-col",
+                    isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+                  )}>
+                    <h3 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-emerald-500" />
+                      Activity Timeline
+                    </h3>
+                    <div className="flex-1 overflow-y-auto pr-2">
+                      <ActivityTimeline activities={activities} />
+                    </div>
+                  </div>
                 </section>
               </motion.div>
             )}
@@ -858,6 +1025,11 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onAnimationComplete={() => {
+                if (!selectedFinding) {
+                  setAiGuidance(null);
+                }
+              }}
               className={cn(
                 "relative max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden border",
                 isDarkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
@@ -917,14 +1089,33 @@ export default function App() {
                   "p-4 rounded-xl border mb-8",
                   isDarkMode ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-100"
                 )}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Info className="w-4 h-4 text-indigo-400" />
-                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Remediation Guidance</h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Info className="w-4 h-4 text-indigo-400" />
+                      <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest">Remediation Guidance</h4>
+                    </div>
+                    <button 
+                      onClick={() => analyzeWithAI(selectedFinding)}
+                      disabled={isAiLoading}
+                      className="flex items-center gap-2 text-[10px] font-black text-white bg-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-500 transition-all disabled:opacity-50"
+                    >
+                      {isAiLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Generate AI Intelligence
+                    </button>
                   </div>
-                  <p className="text-sm text-slate-500 leading-relaxed">
-                    This finding indicates a deviation from standard control implementation as defined in {selectedFinding.framework}. 
-                    Recommend immediate review of access logs and validation of multi-factor authentication parity across all production endpoints.
-                  </p>
+                  
+                  {aiGuidance ? (
+                    <div className="space-y-4">
+                       <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-sans bg-indigo-50/50 p-4 rounded-lg border border-indigo-100">
+                        {aiGuidance}
+                      </p>
+                      <p className="text-[9px] text-slate-400 italic">Guidance generated by Gemini Flash using active GRC context.</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500 leading-relaxed italic">
+                      Standard Mitigation: This finding indicates a deviation from standard control implementation. Request custom intelligence above for granular steps.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex gap-4">
