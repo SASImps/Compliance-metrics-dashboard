@@ -79,13 +79,17 @@ const StatCard = ({ title, value, delta, subText, colorClass }: {
 );
 
 const ChartContainer = ({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) => (
-  <div className={cn("bg-white p-6 rounded-xl border border-slate-200 shadow-sm", className)}>
+  <div className={cn("bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col h-[400px]", className)}>
     <h3 className="text-lg font-semibold text-slate-800 mb-6 flex items-center gap-2">
       <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
       {title}
     </h3>
-    <div className="h-[280px] w-full">
-      {children}
+    <div className="flex-1 w-full min-h-0 relative overflow-hidden">
+      <div className="absolute inset-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          {children as React.ReactElement}
+        </ResponsiveContainer>
+      </div>
     </div>
   </div>
 );
@@ -225,8 +229,10 @@ export default function App() {
 
   const refreshAudit = () => {
     setIsRefreshing(true);
+    setSelectedHeatmapCell(null);
+    setSelectedFinding(null);
     setActivities(prev => [
-      { title: "Audit Audit Initiated", description: "Scanning 260+ compliance entities across cloud clusters.", type: "info", timestamp: "Just now" },
+      { title: "Dashboard Audit Initiated", description: "Scanning 260+ compliance entities across cloud clusters.", type: "info", timestamp: "Just now" },
       ...prev.slice(0, 4)
     ]);
     setTimeout(() => {
@@ -449,7 +455,13 @@ export default function App() {
               {['All', 'NIST CSF 2.0', 'SOC 2', 'ISO 27001'].map((fw) => (
                 <button
                   key={fw}
-                  onClick={() => setFramework(fw as any)}
+                  onClick={() => {
+                    if (framework !== fw) {
+                      setFramework(fw as any);
+                      setSelectedHeatmapCell(null);
+                      setSelectedFinding(null);
+                    }
+                  }}
                   className={cn(
                     "w-full text-left px-3 py-2 rounded-md text-sm transition-all flex items-center gap-3",
                     framework === fw 
@@ -651,95 +663,89 @@ export default function App() {
                 {/* Analysis Charts */}
                 <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <ChartContainer title="Open Risks by Severity">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={riskBySeverity}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                        <Tooltip 
-                          cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
-                          contentStyle={{ 
-                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
-                            borderRadius: '12px', 
-                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
-                            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                            color: isDarkMode ? '#fff' : '#000'
-                          }}
-                        />
-                        <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
-                          {riskBySeverity.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={
-                              entry.name === 'Critical' ? '#ef4444' : 
-                              entry.name === 'High' ? '#f97316' : 
-                              entry.name === 'Medium' ? '#f59e0b' : '#10b981'
-                            } />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <BarChart data={riskBySeverity}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                      <Tooltip 
+                        cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                          borderRadius: '12px', 
+                          border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
+                          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                          color: isDarkMode ? '#fff' : '#000'
+                        }}
+                      />
+                      <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                        {riskBySeverity.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={
+                            entry.name === 'Critical' ? '#ef4444' : 
+                            entry.name === 'High' ? '#f97316' : 
+                            entry.name === 'Medium' ? '#f59e0b' : '#10b981'
+                          } />
+                        ))}
+                      </Bar>
+                    </BarChart>
                   </ChartContainer>
 
                   <ChartContainer title="Audit Findings Trend (12m Cycle)">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={findingsTrend}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
-                            borderRadius: '12px', 
-                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
-                            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                            color: isDarkMode ? '#fff' : '#000'
-                          }}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="count" 
-                          stroke="#6366f1" 
-                          strokeWidth={4} 
-                          dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#fff' }} 
-                          activeDot={{ r: 6, stroke: '#fff', strokeWidth: 3 }} 
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    <LineChart data={findingsTrend}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                          borderRadius: '12px', 
+                          border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`, 
+                          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                          color: isDarkMode ? '#fff' : '#000'
+                        }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="count" 
+                        stroke="#6366f1" 
+                        strokeWidth={4} 
+                        dot={{ r: 4, fill: '#6366f1', strokeWidth: 3, stroke: '#fff' }} 
+                        activeDot={{ r: 6, stroke: '#fff', strokeWidth: 3 }} 
+                      />
+                    </LineChart>
                   </ChartContainer>
                 </section>
 
                 {/* Supply Chain & Risk Heatmap */}
                 <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <ChartContainer title="Vendor Risk Tier Distribution">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={vendorRiskDistribution}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={70}
-                          outerRadius={95}
-                          paddingAngle={8}
-                          dataKey="value"
-                        >
-                          {vendorRiskDistribution.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={
-                              entry.name === 'Critical' ? '#ef4444' : 
-                              entry.name === 'High' ? '#f97316' : 
-                              entry.name === 'Medium' ? '#f59e0b' : '#10b981'
-                            } />
-                          ))}
-                        </Pie>
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: isDarkMode ? '#0f172a' : '#fff',
-                            borderRadius: '12px', 
-                            border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
-                            color: isDarkMode ? '#fff' : '#000'
-                          }}
-                        />
-                        <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    <PieChart>
+                      <Pie
+                        data={vendorRiskDistribution}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={70}
+                        outerRadius={95}
+                        paddingAngle={8}
+                        dataKey="value"
+                      >
+                        {vendorRiskDistribution.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={
+                            entry.name === 'Critical' ? '#ef4444' : 
+                            entry.name === 'High' ? '#f97316' : 
+                            entry.name === 'Medium' ? '#f59e0b' : '#10b981'
+                          } />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                          borderRadius: '12px', 
+                          border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                          color: isDarkMode ? '#fff' : '#000'
+                        }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                    </PieChart>
                   </ChartContainer>
 
                   <ChartContainer title="Risk Impact vs Likelihood Matrix">
@@ -835,26 +841,24 @@ export default function App() {
 
           {/* Controls Mastery */}
           <ChartContainer title="Control Performance by Enterprise Framework" className="h-[420px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={controlRateByFramework}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
-                <Tooltip 
-                  cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
-                  contentStyle={{ 
-                    backgroundColor: isDarkMode ? '#0f172a' : '#fff',
-                    borderRadius: '12px', 
-                    border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
-                    color: isDarkMode ? '#fff' : '#000'
-                  }}
-                />
-                <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', paddingBottom: '20px' }} />
-                <Bar dataKey="pass" name="Pass" fill="#10b981" radius={[6, 6, 0, 0]} barSize={24} />
-                <Bar dataKey="fail" name="Fail" fill="#ef4444" radius={[6, 6, 0, 0]} barSize={24} />
-                <Bar dataKey="progress" name="In-Progress" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={24} />
-              </BarChart>
-            </ResponsiveContainer>
+            <BarChart data={controlRateByFramework}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? "#1e293b" : "#f1f5f9"} />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8', fontWeight: 600 }} />
+              <Tooltip 
+                cursor={{ fill: isDarkMode ? '#1e293b' : '#f8fafc' }}
+                contentStyle={{ 
+                  backgroundColor: isDarkMode ? '#0f172a' : '#fff',
+                  borderRadius: '12px', 
+                  border: `1px solid ${isDarkMode ? '#334155' : '#e2e8f0'}`,
+                  color: isDarkMode ? '#fff' : '#000'
+                }}
+              />
+              <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', paddingBottom: '20px' }} />
+              <Bar dataKey="pass" name="Pass" fill="#10b981" radius={[6, 6, 0, 0]} barSize={24} />
+              <Bar dataKey="fail" name="Fail" fill="#ef4444" radius={[6, 6, 0, 0]} barSize={24} />
+              <Bar dataKey="progress" name="In-Progress" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={24} />
+            </BarChart>
           </ChartContainer>
 
           {/* Row 5: Data Registry */}
